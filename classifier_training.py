@@ -3,6 +3,7 @@ import string
 import numpy as np
 import pandas as pd
 import os
+# Visualizations
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms  # contains a collection of transformations
 import torch
@@ -17,11 +18,12 @@ lr = 0.01
 input_size = (28, 28)
 n_classes = 26
 valid_percent = 0.2
-early_return = 2
+
 # Checking whether GPU is working
 train_on_gpu = torch.cuda.is_available()
 print(f'Train on gpu: {train_on_gpu}')
 save_model_path = 'model-output.pt'
+checkpoint_path = 'checkpoint.pth'
 
 # Loading dataset
 test_set = pd.read_csv('./dataset/sign_mnist_test.csv')
@@ -77,10 +79,13 @@ class CNN(nn.Module):
             nn.MaxPool2d(kernel_size=3, stride=1)
         )
         self.classifier = nn.Sequential(
-            nn.Linear(in_features=128 * 5 * 5, out_features=64, bias=True),
+            nn.Linear(in_features=128 * 5 * 5, out_features=128, bias=True),
             nn.ReLU(),
-            # nn.Dropout(0.4),
-            nn.Linear(in_features=64, out_features=n_classes, bias=True),
+            nn.Dropout(p=0.5, inplace=False),
+            nn.Linear(in_features=128, out_features=128, bias=True),
+            nn.ReLU(),
+            nn.Dropout(p=0.5, inplace=False),
+            nn.Linear(in_features=128, out_features=n_classes, bias=True),
             nn.LogSoftmax(dim=1)
         )
 
@@ -95,7 +100,7 @@ class CNN(nn.Module):
 # summary(model, (1, 28, 28), batch_size=batch)
 
 def train_model(model, train_dataset, val_dataset, save_file_name=save_model_path, learning_rate=lr,
-                batch_size=batch, num_epochs=10):
+                batch_size=batch, num_epochs=20, early_return=2):
     train_ld = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_ld = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
     criterion = nn.CrossEntropyLoss()
@@ -173,6 +178,9 @@ def train_model(model, train_dataset, val_dataset, save_file_name=save_model_pat
             train_acc = train_acc / len(train_ld.dataset)
             valid_acc = valid_acc / len(val_ld.dataset)
 
+            # Record the result of this epoch
+            history.append([train_loss, valid_loss, train_acc, valid_acc])
+
             print(f'Epoch: {epoch} \tTrain Loss: {train_loss:.4f} '
                   f'\tValidation Loss: {valid_loss:.4f}')
             print(
@@ -188,14 +196,46 @@ def train_model(model, train_dataset, val_dataset, save_file_name=save_model_pat
                 epochs_no_improve = 0
             else:
                 epochs_no_improve += 1
+
                 if epochs_no_improve >= early_return:
                     print(f'Early return at epoch {epoch}!\n')
-                    break
+                    # Early return, then reload the best state dict
+                    model.load_state_dict(torch.load(save_file_name))
+                    # Record the state of optimizer which helps to save the model
+                    model.optimizer = optimizer
+                    # Re-construct history to a Dataframe which easy to plot
+                    history = pd.DataFrame(history,
+                                           columns=['train_loss', 'valid_loss',
+                                                    'train_acc', 'valid_acc'])
+                    return model, history
+    # Record the state of optimizer which helps to save the model
+    model.optimizer = optimizer
+    # Re-construct history to a Dataframe which easy to plot
+    history = pd.DataFrame(history,
+                           columns=['train_loss', 'valid_loss',
+                                    'train_acc', 'valid_acc'])
+    return model, history
 
-    return model
+def plot_history(history):
+    plt.figure(figsize=(8, 6))
+    for c in ['train_loss', 'valid_loss']:
+        plt.plot(
+            history[c], label=c)
+    plt.legend()
+    plt.xlabel('Epoch')
+    plt.ylabel('Average Negative Log Likelihood')
+    plt.title('Training and Validation Losses')
+
+# def save_model(model, path):
+#     checkpoint = {'state_dict': model.state_dict(), 'optimizer': model.optimizer.state_dict()}
+#
+#     return
+#
+# def load_model(path):
+#     return
 
 cnn_model = CNN()
-cnn_model = train_model(cnn_model, train_ds, val_ds)
+cnn_model, history = train_model(cnn_model, train_ds, val_ds)
 
 # TODO: Create function for loading and saving model
 
