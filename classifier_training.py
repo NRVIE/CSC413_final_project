@@ -81,11 +81,11 @@ class CNN(nn.Module):
         self.classifier = nn.Sequential(
             nn.Linear(in_features=128 * 5 * 5, out_features=128, bias=True),
             nn.ReLU(),
-            nn.Dropout(p=0.5, inplace=False),
-            nn.Linear(in_features=128, out_features=128, bias=True),
+            # nn.Dropout(p=0.5, inplace=False),
+            nn.Linear(in_features=128, out_features=64, bias=True),
             nn.ReLU(),
-            nn.Dropout(p=0.5, inplace=False),
-            nn.Linear(in_features=128, out_features=n_classes, bias=True),
+            # nn.Dropout(p=0.5, inplace=False),
+            nn.Linear(in_features=64, out_features=n_classes, bias=True),
             nn.LogSoftmax(dim=1)
         )
 
@@ -100,7 +100,7 @@ class CNN(nn.Module):
 # summary(model, (1, 28, 28), batch_size=batch)
 
 def train_model(model, train_dataset, val_dataset, save_file_name=save_model_path, learning_rate=lr,
-                batch_size=batch, num_epochs=20, early_return=2):
+                batch_size=batch, num_epochs=20, early_return=3):
     train_ld = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_ld = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
     criterion = nn.CrossEntropyLoss()
@@ -198,7 +198,7 @@ def train_model(model, train_dataset, val_dataset, save_file_name=save_model_pat
                 epochs_no_improve += 1
 
                 if epochs_no_improve >= early_return:
-                    print(f'Early return at epoch {epoch}!\n')
+                    print(f'Early return at epoch {epoch} with lowest loss {valid_loss_min}!\n')
                     # Early return, then reload the best state dict
                     model.load_state_dict(torch.load(save_file_name))
                     # Record the state of optimizer which helps to save the model
@@ -238,6 +238,7 @@ cnn_model = CNN()
 cnn_model, history = train_model(cnn_model, train_ds, val_ds)
 
 # TODO: Create function for loading and saving model
+# TODO: Implement a function for video capture and interfere the hand sign
 
 # def main():
 #     return
