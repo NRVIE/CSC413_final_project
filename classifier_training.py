@@ -19,6 +19,7 @@ lr = 0.01
 input_size = (28, 28)
 n_classes = 26
 valid_percent = 0.2
+target_list = dict(enumerate(string.ascii_uppercase))
 
 # Checking whether GPU is working
 train_on_gpu = torch.cuda.is_available()
@@ -46,7 +47,6 @@ test_data = TensorDataset(torch.tensor(test_sam, dtype=torch.float32),
 
 # # Check the dataset image tensor in the dataset can be
 # # reconstruct into a picture correspond to its label
-# target_list = dict(enumerate(string.ascii_uppercase))
 # img, label = train_data[1]
 # img = np.reshape(img, (28, 28))
 # print(img.shape, label)
@@ -61,9 +61,10 @@ train_ds, val_ds = torch.utils.data.random_split(train_data,
 
 image_transform = transforms.Compose([
             # transforms.RandomResizedCrop(size=32, scale=(0.8, 1.0)),
-            # transforms.RandomRotation(degrees=10),
-            # transforms.ColorJitter(brightness=0.25),
+            transforms.RandomRotation(degrees=10),
+            # transforms.ColorJitter(brightness=(0.9, 0.9)),
             transforms.RandomHorizontalFlip(),
+            transforms.RandomPerspective(distortion_scale=0.2),
             # transforms.CenterCrop(size=28),  # Image net standards
             # transforms.ToTensor(),
             # transforms.Normalize([0.485, 0.456, 0.406],
@@ -158,6 +159,9 @@ def train_model(model, train_dataset, val_dataset, save_file_name=save_model_pat
     valid_max_acc = 0
     history = []
 
+    # Hand with landmarks: hand detector
+    # detector = HandDetector(maxHands=1)
+
     # Training loop
     for epoch in range(num_epochs):
         print(f'Training Epoch {epoch}...\n')
@@ -170,6 +174,8 @@ def train_model(model, train_dataset, val_dataset, save_file_name=save_model_pat
         model.train()
         for i, (imgs, labels) in enumerate(train_ld):
             # imgs = image_transform(imgs)
+            # plt.imshow(imgs[0].reshape((28, 28)).numpy(), cmap='gray')
+            # return
             # print(f'Data shape: {imgs.shape}\n')
             if train_on_gpu:
                 imgs, labels = imgs.cuda(), labels.cuda()
@@ -288,9 +294,9 @@ def video_capture():
     offset = 20
     model = CNN()
     if train_on_gpu:
-        model.load_state_dict(torch.load('./model/best-model.pt'))
+        model.load_state_dict(torch.load('./model/model-output0.0-with-data-augment.pt'))
     else:
-        model.load_state_dict(torch.load('./model/best-model.pt',
+        model.load_state_dict(torch.load('./model/model-output0.0-with-data-augment.pt',
                               map_location=torch.device('cpu')))
     while True:
         success, img = cap.read()
@@ -303,6 +309,17 @@ def video_capture():
             y_offset = y + offset
             # Crop image
             # Checking corner cases and adapt them
+            if h > w:
+                diff = h - w
+                x = x - int(diff / 2)
+                x_offset = x_offset + w + int(diff/2)
+                y_offset += h
+            else:
+                diff = w - h
+                x_offset += w
+                y = y - int(diff / 2)
+                y_offset = y_offset + h + int(diff / 2)
+
             if x - offset < 0:
                 x = 0
             else:
@@ -312,24 +329,32 @@ def video_capture():
                 y = 0
             else:
                 y = y - offset
-            img_cropped = img[y:y_offset + h, x:x_offset + w]
+            img_cropped = img[y:y_offset, x:x_offset]
+            cv2.imshow("ImgCropeed", img_cropped)
             img_cropped = cv2.resize(img_cropped, (28, 28), interpolation=cv2.INTER_AREA)
-            cv2.imshow("ImgCropped", img_cropped)
+            cv2.imshow("Sample", img_cropped)
             img_cropped = cv2.cvtColor(img_cropped, cv2.COLOR_BGR2GRAY).reshape((1, 1, 28, 28))
             print(img_cropped.shape)
             # sample = img_cropped.reshape((1, 28, 28))
             sample = torch.from_numpy(img_cropped)
             sample = sample.type(torch.float32)
             with torch.no_grad():
+                model.eval()
                 if train_on_gpu:
-                    print(model(sample.cuda()))
+                    # print(sample.shape)
+                    output = model(sample.cuda())
+                    _, target = torch.max(output, dim=1)
+                    # print(output)
+                    print(f'{target_list[int(target[0])]}')
                 else:
+                    # print(sample.shape)
                     output = model(sample)
-                    a, b = torch.max(output, dim=1)
-                    print(output)
-                    print(a, b)
+                    _, target = torch.max(output, dim=1)
+                    # print(output)
+                    print(f'{target_list[int(target[0])]}')
             # cv2.imshow("ImgCropped", img_cropped)
         cv2.imshow("Image", hand_img)
+        # plt.imshow(hand_img)
         cv2.waitKey(1)
 
 
@@ -342,7 +367,11 @@ def video_capture():
 #     return
 
 cnn_model = CNN()
-# cnn_model.load_state_dict(torch.load('./model/model-output-0.1255.pt'))
+# if train_on_gpu:
+#     cnn_model.load_state_dict(torch.load('./model/model-output0.0-with-high-test-acc.pt'))
+# else:
+#     cnn_model.load_state_dict(torch.load('./model/model-output0.0-with-high-test-acc.pt',
+#                                          map_location=torch.device('cpu')))
 # accuracy(cnn_model, test_data)
 # test_dl = DataLoader(test_data, batch_size=batch, shuffle=False)
 # for imgs, labels in test_dl:
@@ -350,13 +379,3 @@ cnn_model = CNN()
 
 # video_capture()
 cnn_model, history = train_model(cnn_model, train_ds, val_ds)
-
-# TODO: Create function for loading and saving model
-# TODO: Implement a function for video capture and interfere the hand sign
-
-# def main():
-#     return
-#
-#
-# if __name__ == "__main__":
-#     main()
