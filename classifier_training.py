@@ -59,32 +59,49 @@ valid_size = int(train_data_size * valid_percent)
 train_ds, val_ds = torch.utils.data.random_split(train_data,
                                                  [train_data_size - valid_size, valid_size])
 
+image_transform = transforms.Compose([
+            # transforms.RandomResizedCrop(size=32, scale=(0.8, 1.0)),
+            # transforms.RandomRotation(degrees=10),
+            # transforms.ColorJitter(brightness=0.25),
+            transforms.RandomHorizontalFlip(),
+            # transforms.CenterCrop(size=28),  # Image net standards
+            # transforms.ToTensor(),
+            # transforms.Normalize([0.485, 0.456, 0.406],
+            #                      [0.229, 0.224, 0.225])  # Imagenet standards
+        ])
+
 
 class CNN(nn.Module):
     def __init__(self):
         super(CNN, self).__init__()
 
         self.cnn_layers = nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(1, 128, kernel_size=3, stride=1, padding=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(128),
+            nn.Conv2d(128, 64, kernel_size=3, stride=1, padding=1),
             nn.ReLU(inplace=True),
+            nn.BatchNorm2d(64),
             nn.MaxPool2d(kernel_size=2, stride=2),
 
-            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(64, 32, kernel_size=3, stride=1, padding=1),
             nn.ReLU(inplace=True),
+            nn.BatchNorm2d(32),
             nn.MaxPool2d(kernel_size=2, stride=2),
 
-            nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1),
             nn.ReLU(inplace=True),
+            nn.BatchNorm2d(32),
             nn.MaxPool2d(kernel_size=3, stride=1)
         )
         self.classifier = nn.Sequential(
-            nn.Linear(in_features=128 * 5 * 5, out_features=128, bias=True),
+            nn.Linear(in_features=32 * 5 * 5, out_features=128, bias=True),
             nn.ReLU(),
+            nn.BatchNorm1d(128),
             # nn.Dropout(p=0.5, inplace=False),
             nn.Linear(in_features=128, out_features=64, bias=True),
             nn.ReLU(),
+            nn.BatchNorm1d(64),
             # nn.Dropout(p=0.5, inplace=False),
             nn.Linear(in_features=64, out_features=n_classes, bias=True),
             nn.LogSoftmax(dim=1)
@@ -99,6 +116,30 @@ class CNN(nn.Module):
 # # Check output of each layer
 # model = CNN()
 # summary(model, (1, 28, 28), batch_size=batch)
+
+def accuracy(model, dataset):
+    dl = DataLoader(dataset, batch_size=batch, shuffle=False)
+    total_acc = 0
+    with torch.no_grad():
+        model.eval()
+
+        for imgs, labels in dl:
+            if train_on_gpu:
+                imgs, labels = imgs.cuda(), labels.cuda()
+
+            # Forward pass
+            output = model(imgs)
+
+            # Calculate validation accuracy
+            _, pred = torch.max(output, dim=1)
+            correct_tensor = pred.eq(labels.data.view_as(pred))
+            acc = torch.mean(correct_tensor.type(torch.FloatTensor))
+            # Multiply average accuracy times the number of examples
+            total_acc += acc.item() * imgs.size(0)
+        total_acc = total_acc / len(dl.dataset)
+        # print(len(dl.dataset))
+        print(f'Test acc: {100 * total_acc:.2f}%.\n')
+        return
 
 def train_model(model, train_dataset, val_dataset, save_file_name=save_model_path, learning_rate=lr,
                 batch_size=batch, num_epochs=20, early_return=3):
@@ -128,6 +169,7 @@ def train_model(model, train_dataset, val_dataset, save_file_name=save_model_pat
 
         model.train()
         for i, (imgs, labels) in enumerate(train_ld):
+            # imgs = image_transform(imgs)
             # print(f'Data shape: {imgs.shape}\n')
             if train_on_gpu:
                 imgs, labels = imgs.cuda(), labels.cuda()
@@ -149,8 +191,8 @@ def train_model(model, train_dataset, val_dataset, save_file_name=save_model_pat
             # Calculating accuracy
             _, pred = torch.max(output, dim=1)
             correct = pred.eq(labels.data.view_as(pred))
-            accuracy = torch.mean(correct.type(torch.FloatTensor))
-            train_acc += accuracy.item() * imgs.size(0)
+            acc = torch.mean(correct.type(torch.FloatTensor))
+            train_acc += acc.item() * imgs.size(0)
 
         with torch.no_grad():
             model.eval()
@@ -169,9 +211,9 @@ def train_model(model, train_dataset, val_dataset, save_file_name=save_model_pat
                 # Calculate validation accuracy
                 _, pred = torch.max(output, dim=1)
                 correct_tensor = pred.eq(labels.data.view_as(pred))
-                accuracy = torch.mean(correct_tensor.type(torch.FloatTensor))
+                acc = torch.mean(correct_tensor.type(torch.FloatTensor))
                 # Multiply average accuracy times the number of examples
-                valid_acc += accuracy.item() * imgs.size(0)
+                valid_acc += acc.item() * imgs.size(0)
 
             # Compute average loss and accuracy
             train_loss = train_loss / len(train_ld.dataset)
@@ -188,6 +230,7 @@ def train_model(model, train_dataset, val_dataset, save_file_name=save_model_pat
                 f'\t\tTraining Accuracy: {100 * train_acc:.2f}%\t '
                 f'Validation Accuracy: {100 * valid_acc:.2f}%\n'
             )
+            accuracy(model, test_data)
 
             # Early return detection
             if valid_loss < valid_loss_min:
@@ -217,29 +260,6 @@ def train_model(model, train_dataset, val_dataset, save_file_name=save_model_pat
                                     'train_acc', 'valid_acc'])
     return model, history
 
-def accuracy(model, dataset):
-    dl = DataLoader(dataset, batch_size=batch, shuffle=False)
-    total_acc = 0
-    with torch.no_grad():
-        model.eval()
-
-        for imgs, labels in dl:
-            if train_on_gpu:
-                imgs, labels = imgs.cuda(), labels.cuda()
-
-            # Forward pass
-            output = model(imgs)
-
-            # Calculate validation accuracy
-            _, pred = torch.max(output, dim=1)
-            correct_tensor = pred.eq(labels.data.view_as(pred))
-            accuracy = torch.mean(correct_tensor.type(torch.FloatTensor))
-            # Multiply average accuracy times the number of examples
-            total_acc += accuracy.item() * imgs.size(0)
-        total_acc = total_acc / len(dl.dataset)
-        # print(len(dl.dataset))
-        print(f'Test acc: {100 * total_acc:.2f}%.\n')
-        return
 
 def plot_history(history):
     # plt.figure(figsize=(8, 6))
@@ -322,15 +342,14 @@ def video_capture():
 #     return
 
 cnn_model = CNN()
-cnn_model.load_state_dict(torch.load('./model/best-model.pt',
-                                 map_location=torch.device('cpu')))
-accuracy(cnn_model, test_data)
+# cnn_model.load_state_dict(torch.load('./model/model-output-0.1255.pt'))
+# accuracy(cnn_model, test_data)
 # test_dl = DataLoader(test_data, batch_size=batch, shuffle=False)
 # for imgs, labels in test_dl:
 #     output = cnn_model(imgs)
 
 # video_capture()
-# cnn_model, history = train_model(cnn_model, train_ds, val_ds)
+cnn_model, history = train_model(cnn_model, train_ds, val_ds)
 
 # TODO: Create function for loading and saving model
 # TODO: Implement a function for video capture and interfere the hand sign
