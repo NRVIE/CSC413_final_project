@@ -2,6 +2,7 @@ import string
 import cv2
 import numpy as np
 import pandas as pd
+import heu
 import os
 # Visualizations
 import matplotlib.pyplot as plt
@@ -118,6 +119,7 @@ class CNN(nn.Module):
 # model = CNN()
 # summary(model, (1, 28, 28), batch_size=batch)
 
+
 def accuracy(model, dataset):
     dl = DataLoader(dataset, batch_size=batch, shuffle=False)
     total_acc = 0
@@ -141,6 +143,7 @@ def accuracy(model, dataset):
         # print(len(dl.dataset))
         print(f'Test acc: {100 * total_acc:.2f}%.\n')
         return
+
 
 def train_model(model, train_dataset, val_dataset, save_file_name=save_model_path, learning_rate=lr,
                 batch_size=batch, num_epochs=20, early_return=3):
@@ -238,7 +241,10 @@ def train_model(model, train_dataset, val_dataset, save_file_name=save_model_pat
             )
             accuracy(model, test_data)
 
-            # Early return detection
+            # Early return detection: if the current valid_loss is smaller than valid_loss_min,
+            # then we treat this epoch's weights are good enough. Otherwise,
+            # we accumulate the count of bad epoch. The training would early return if
+            # epochs_no_improve is greater then a threshold
             if valid_loss < valid_loss_min:
                 # Save model
                 torch.save(model.state_dict(), save_file_name)
@@ -288,18 +294,25 @@ def plot_history(history):
 
     plt.show()
 
-def video_capture():
+
+def video_capture(path='./model/default-model.pt'):
+    '''
+
+    :param path: The dir path of the model user want to load
+    :return: NULL
+    '''
     cap = cv2.VideoCapture(0)
     detector = HandDetector(maxHands=1)
     offset = 20
     model = CNN()
     if train_on_gpu:
-        model.load_state_dict(torch.load('./model/model-output0.0-with-data-augment.pt'))
+        model.load_state_dict(torch.load(path))
     else:
-        model.load_state_dict(torch.load('./model/model-output0.0-with-data-augment.pt',
+        model.load_state_dict(torch.load(path,
                               map_location=torch.device('cpu')))
     while True:
         success, img = cap.read()
+        cv2.imshow('Ori', img)
         hand_img = img.copy()
         hands, hand_img = detector.findHands(hand_img)
         if hands:
@@ -334,7 +347,7 @@ def video_capture():
             img_cropped = cv2.resize(img_cropped, (28, 28), interpolation=cv2.INTER_AREA)
             cv2.imshow("Sample", img_cropped)
             img_cropped = cv2.cvtColor(img_cropped, cv2.COLOR_BGR2GRAY).reshape((1, 1, 28, 28))
-            print(img_cropped.shape)
+            # print(img_cropped.shape)
             # sample = img_cropped.reshape((1, 28, 28))
             sample = torch.from_numpy(img_cropped)
             sample = sample.type(torch.float32)
@@ -345,37 +358,134 @@ def video_capture():
                     output = model(sample.cuda())
                     _, target = torch.max(output, dim=1)
                     # print(output)
-                    print(f'{target_list[int(target[0])]}')
+                    print(f'current letter: {target_list[int(target[0])]}\n')
                 else:
                     # print(sample.shape)
                     output = model(sample)
                     _, target = torch.max(output, dim=1)
                     # print(output)
-                    print(f'{target_list[int(target[0])]}')
+                    print(f'current letter: {target_list[int(target[0])]}')
             # cv2.imshow("ImgCropped", img_cropped)
         cv2.imshow("Image", hand_img)
         # plt.imshow(hand_img)
         cv2.waitKey(1)
 
 
-# def save_model(model, path):
-#     checkpoint = {'state_dict': model.state_dict(), 'optimizer': model.optimizer.state_dict()}
-#
-#     return
-#
-# def load_model(path):
-#     return
+def video_predict(video_path='test_video.mp4', model_path='./model/default-model.pt'):
+    '''
+    Return a string of all characters detected in each frame of this video by model user choose
+    :param video_path: The dir path of the video that user want to interfere
+    :param model_path: The dir path of the model user want to load
+    :return: A string of all character detected in each frame of this video
+    '''
+    cap = cv2.VideoCapture(video_path)
+    if (cap.isOpened() ==  False):
+        print(f'Error on reading video {video_path}\n')
+        return
+    detector = HandDetector(maxHands=1)
+    offset = 20
+    word = ''
+    model = CNN()
+    if train_on_gpu:
+        model.load_state_dict(torch.load(model_path))
+    else:
+        model.load_state_dict(torch.load(model_path,
+                                         map_location=torch.device('cpu')))
 
-cnn_model = CNN()
+    print(f'Start processing video...\n')
+    while (cap.isOpened()):
+        success, img = cap.read()
+        if success:
+            hand_img = img.copy()
+            hands, hand_img = detector.findHands(hand_img)
+            # Crop the img that only leave hand
+            if hands:
+                hand = hands[0]
+                x, y, w, h = hand['bbox']
+                x_offset = x + offset
+                y_offset = y + offset
+                # Crop image
+                # Checking corner cases and adapt them
+                if h > w:
+                    diff = h - w
+                    x = x - int(diff / 2)
+                    x_offset = x_offset + w + int(diff / 2)
+                    y_offset += h
+                else:
+                    diff = w - h
+                    x_offset += w
+                    y = y - int(diff / 2)
+                    y_offset = y_offset + h + int(diff / 2)
+
+                if x - offset < 0:
+                    x = 0
+                else:
+                    x = x - offset
+
+                if y - offset < 0:
+                    y = 0
+                else:
+                    y = y - offset
+                # Crop the image and convert to the format that can be predicted by model
+                img_cropped = img[y:y_offset, x:x_offset]
+                # cv2.imshow("ImgCropeed", img_cropped)
+                img_cropped = cv2.resize(img_cropped, (28, 28), interpolation=cv2.INTER_AREA)
+                # cv2.imshow("Sample", img_cropped)
+                img_cropped = cv2.cvtColor(img_cropped, cv2.COLOR_BGR2GRAY).reshape((1, 1, 28, 28))
+                sample = torch.from_numpy(img_cropped)
+                sample = sample.type(torch.float32)
+                # Start to predict the current image
+                with torch.no_grad():
+                    model.eval()
+                    if train_on_gpu:
+                        # print(sample.shape)
+                        output = model(sample.cuda())
+                        _, target = torch.max(output, dim=1)
+                        word += target_list[int(target[0])]
+                        # print(output)
+                        print(f'current letter: {target_list[int(target[0])]}\n')
+                    else:
+                        # print(sample.shape)
+                        output = model(sample)
+                        _, target = torch.max(output, dim=1)
+                        word += target_list[int(target[0])]
+                        # print(output)
+                        # print(f'current letter: {target_list[int(target[0])]}')
+                # cv2.imshow("ImgCropped", img_cropped)
+
+                # cv2.imshow("Image", hand_img)
+        else:
+            break
+        # plt.imshow(hand_img)
+    cap.release()
+    cv2.destroyAllWindows()
+    input_string = word.lower()
+    decoded_word = heu.decode_sequence(input_string, max_tr=240, min_tr=30, max_return=2)
+    print(f'The word depicted by video {video_path} could be: {decoded_word}\n')
+    return word
+
+
+# Below are some example of how to using our model,
+# uncomment the one you interested in and see how it works
+
+# # Example 1: example of how to training our
+# # cnn model for interfere what character does an image means
+# cnn_model = CNN()
+# cnn_model, history = train_model(cnn_model, train_ds, val_ds)
+#
+# # Example 2: how to load saved model (in this example we loaded our default model)
+# cnn_model = CNN()
 # if train_on_gpu:
-#     cnn_model.load_state_dict(torch.load('./model/model-output0.0-with-high-test-acc.pt'))
+#     cnn_model.load_state_dict(torch.load('./model/default-model.pt'))
 # else:
-#     cnn_model.load_state_dict(torch.load('./model/model-output0.0-with-high-test-acc.pt',
+#     cnn_model.load_state_dict(torch.load('./model/default-model.pt',
 #                                          map_location=torch.device('cpu')))
-# accuracy(cnn_model, test_data)
-# test_dl = DataLoader(test_data, batch_size=batch, shuffle=False)
-# for imgs, labels in test_dl:
-#     output = cnn_model(imgs)
+# accuracy(cnn_model, test_data)  # output accuracy of our test set
 
-# video_capture()
-cnn_model, history = train_model(cnn_model, train_ds, val_ds)
+# # Example 3: example of video_capture() which
+# # translating ASL in real time (in this example we loaded our default model)
+# video_capture('./model/default-model.pt')
+
+
+# Example 4: example of video_predict() that we interfere the word depicted in a given video
+word = video_predict(video_path='test_video.mp4', model_path='./model/default-model.pt')
