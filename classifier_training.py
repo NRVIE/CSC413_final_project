@@ -173,7 +173,7 @@ def train_model(model, train_dataset, val_dataset, save_file_name=save_model_pat
 
         model.train()
         for i, (imgs, labels) in enumerate(train_ld):
-            # imgs = image_transform(imgs)
+            imgs = image_transform(imgs)  # for Data augment
             # plt.imshow(imgs[0].reshape((28, 28)).numpy(), cmap='gray')
             # return
             # print(f'Data shape: {imgs.shape}\n')
