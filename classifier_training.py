@@ -217,6 +217,30 @@ def train_model(model, train_dataset, val_dataset, save_file_name=save_model_pat
                                     'train_acc', 'valid_acc'])
     return model, history
 
+def accuracy(model, dataset):
+    dl = DataLoader(dataset, batch_size=batch, shuffle=False)
+    total_acc = 0
+    with torch.no_grad():
+        model.eval()
+
+        for imgs, labels in dl:
+            if train_on_gpu:
+                imgs, labels = imgs.cuda(), labels.cuda()
+
+            # Forward pass
+            output = model(imgs)
+
+            # Calculate validation accuracy
+            _, pred = torch.max(output, dim=1)
+            correct_tensor = pred.eq(labels.data.view_as(pred))
+            accuracy = torch.mean(correct_tensor.type(torch.FloatTensor))
+            # Multiply average accuracy times the number of examples
+            total_acc += accuracy.item() * imgs.size(0)
+        total_acc = total_acc / len(dl.dataset)
+        # print(len(dl.dataset))
+        print(f'Test acc: {100 * total_acc:.2f}%.\n')
+        return
+
 def plot_history(history):
     # plt.figure(figsize=(8, 6))
     figure, axis = plt.subplots(1, 2)
@@ -239,12 +263,53 @@ def plot_history(history):
     plt.show()
 
 def video_capture():
-    cap = cv2.VideoCapture()
+    cap = cv2.VideoCapture(0)
     detector = HandDetector(maxHands=1)
+    offset = 20
+    model = CNN()
+    if train_on_gpu:
+        model.load_state_dict(torch.load('./model/best-model.pt'))
+    else:
+        model.load_state_dict(torch.load('./model/best-model.pt',
+                              map_location=torch.device('cpu')))
     while True:
         success, img = cap.read()
-        hands, img = detector.findHands(img)
-        cv2.imshow("Image", img)
+        hand_img = img.copy()
+        hands, hand_img = detector.findHands(hand_img)
+        if hands:
+            hand = hands[0]
+            x, y, w, h = hand['bbox']
+            x_offset = x + offset
+            y_offset = y + offset
+            # Crop image
+            # Checking corner cases and adapt them
+            if x - offset < 0:
+                x = 0
+            else:
+                x = x - offset
+
+            if y - offset < 0:
+                y = 0
+            else:
+                y = y - offset
+            img_cropped = img[y:y_offset + h, x:x_offset + w]
+            img_cropped = cv2.resize(img_cropped, (28, 28), interpolation=cv2.INTER_AREA)
+            cv2.imshow("ImgCropped", img_cropped)
+            img_cropped = cv2.cvtColor(img_cropped, cv2.COLOR_BGR2GRAY).reshape((1, 1, 28, 28))
+            print(img_cropped.shape)
+            # sample = img_cropped.reshape((1, 28, 28))
+            sample = torch.from_numpy(img_cropped)
+            sample = sample.type(torch.float32)
+            with torch.no_grad():
+                if train_on_gpu:
+                    print(model(sample.cuda()))
+                else:
+                    output = model(sample)
+                    a, b = torch.max(output, dim=1)
+                    print(output)
+                    print(a, b)
+            # cv2.imshow("ImgCropped", img_cropped)
+        cv2.imshow("Image", hand_img)
         cv2.waitKey(1)
 
 
@@ -257,7 +322,15 @@ def video_capture():
 #     return
 
 cnn_model = CNN()
-cnn_model, history = train_model(cnn_model, train_ds, val_ds)
+cnn_model.load_state_dict(torch.load('./model/best-model.pt',
+                                 map_location=torch.device('cpu')))
+accuracy(cnn_model, test_data)
+# test_dl = DataLoader(test_data, batch_size=batch, shuffle=False)
+# for imgs, labels in test_dl:
+#     output = cnn_model(imgs)
+
+# video_capture()
+# cnn_model, history = train_model(cnn_model, train_ds, val_ds)
 
 # TODO: Create function for loading and saving model
 # TODO: Implement a function for video capture and interfere the hand sign
