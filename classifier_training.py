@@ -1,5 +1,5 @@
 import string
-
+import cv2
 import numpy as np
 import pandas as pd
 import os
@@ -11,6 +11,7 @@ from torchsummary import summary
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset  # For training data and data processing
+from cvzone.HandTrackingModule import HandDetector
 
 # Hyper-parameters and some variables for data processing
 batch = 128
@@ -217,14 +218,35 @@ def train_model(model, train_dataset, val_dataset, save_file_name=save_model_pat
     return model, history
 
 def plot_history(history):
-    plt.figure(figsize=(8, 6))
+    # plt.figure(figsize=(8, 6))
+    figure, axis = plt.subplots(1, 2)
     for c in ['train_loss', 'valid_loss']:
-        plt.plot(
+        axis[0].plot(
             history[c], label=c)
-    plt.legend()
-    plt.xlabel('Epoch')
-    plt.ylabel('Average Negative Log Likelihood')
-    plt.title('Training and Validation Losses')
+    axis[0].legend()
+    # axis[0].xlabel('Epoch')
+    # axis[0].ylabel('Average Negative Log Likelihood')
+    axis[0].set_title('Training and Validation Losses')
+
+    for c in ['train_acc', 'valid_acc']:
+        axis[1].plot(
+            100 * history[c], label=c)
+    axis[1].legend()
+    # axis[1].xlabel('Epoch')
+    # axis[1].ylabel('Average Negative Log Likelihood')
+    axis[1].set_title('Training and Validation Accuracy')
+
+    plt.show()
+
+def video_capture():
+    cap = cv2.VideoCapture()
+    detector = HandDetector(maxHands=1)
+    while True:
+        success, img = cap.read()
+        hands, img = detector.findHands(img)
+        cv2.imshow("Image", img)
+        cv2.waitKey(1)
+
 
 # def save_model(model, path):
 #     checkpoint = {'state_dict': model.state_dict(), 'optimizer': model.optimizer.state_dict()}
