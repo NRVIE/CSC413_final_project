@@ -306,7 +306,9 @@ def video_capture(path='./model/default-model.pt'):
     offset = 20
     model = CNN()
     if train_on_gpu:
-        model.load_state_dict(torch.load(path))
+        model = model.cuda()
+        model.load_state_dict(torch.load(path,
+                                         map_location=torch.device('cuda')))
     else:
         model.load_state_dict(torch.load(path,
                               map_location=torch.device('cpu')))
@@ -387,7 +389,9 @@ def video_predict(video_path='test_video.mp4', model_path='./model/default-model
     word = ''
     model = CNN()
     if train_on_gpu:
-        model.load_state_dict(torch.load(model_path))
+        model = model.cuda()
+        model.load_state_dict(torch.load(model_path,
+                                         map_location=torch.device('cuda')))
     else:
         model.load_state_dict(torch.load(model_path,
                                          map_location=torch.device('cpu')))
@@ -472,11 +476,13 @@ def video_predict(video_path='test_video.mp4', model_path='./model/default-model
 # # cnn model for interfere what character does an image means
 # cnn_model = CNN()
 # cnn_model, history = train_model(cnn_model, train_ds, val_ds)
-#
+
 # # Example 2: how to load saved model (in this example we loaded our default model)
 # cnn_model = CNN()
 # if train_on_gpu:
-#     cnn_model.load_state_dict(torch.load('./model/default-model.pt'))
+#     cnn_model = cnn_model.cuda()
+#     cnn_model.load_state_dict(torch.load('./model/default-model.pt',
+#                                          map_location=torch.device('cuda')))
 # else:
 #     cnn_model.load_state_dict(torch.load('./model/default-model.pt',
 #                                          map_location=torch.device('cpu')))
